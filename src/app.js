@@ -7,6 +7,9 @@ const routes = require('./routes');
 
 const app = express();
 
+// Trust nginx reverse proxy so express-rate-limit reads the correct client IP
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors({ origin: process.env.CLIENT_URL || '*', credentials: true }));
 app.use(express.json({ limit: '10kb' }));
