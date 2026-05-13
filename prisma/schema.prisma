@@ -27,7 +27,6 @@ model Room {
   name         String   @db.VarChar(150)
   hostId       Int      @map("host_id")
   isPublic     Boolean  @default(true) @map("is_public")
-  category     String?  @db.VarChar(50)
   youtubeId    String?  @map("youtube_id") @db.VarChar(50)
   timestampSec Float    @default(0) @map("timestamp_sec")
   isPlaying    Boolean  @default(false) @map("is_playing")

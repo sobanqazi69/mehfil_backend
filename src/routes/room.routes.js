@@ -22,8 +22,7 @@ router.post(
   validate(
     z.object({
       name: z.string().min(1).max(150),
-      isPublic: z.boolean().optional(),
-      category: z.string().max(50).optional(),
+      youtubeId: z.string().max(50).optional(),
     }),
   ),
   createRoom,

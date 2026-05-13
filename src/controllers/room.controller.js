@@ -7,9 +7,8 @@ const MESSAGES_LIMIT = 50;
 const browseRooms = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const category = req.query.category;
 
-    const where = { isPublic: true, isLive: true, ...(category && { category }) };
+    const where = { isPublic: true, isLive: true };
 
     const [rooms, total] = await prisma.$transaction([
       prisma.room.findMany({
@@ -48,9 +47,9 @@ const getMyRooms = async (req, res) => {
 
 const createRoom = async (req, res) => {
   try {
-    const { name, isPublic = true, category } = req.body;
+    const { name, youtubeId } = req.body;
     const room = await prisma.room.create({
-      data: { name, isPublic, category, hostId: req.user.id },
+      data: { name, youtubeId: youtubeId || null, isPublic: true, hostId: req.user.id },
       include: { host: { select: { id: true, name: true, avatar: true } } },
     });
     return res.status(201).json(room);
