@@ -18,11 +18,14 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
+          port: 22
           script: |
             set -e
 
             APP_DIR="/home/microdesk-mehfil/htdocs/mehfil.microdesk.tech"
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
             cd "$APP_DIR"
 
             echo "→ Pulling latest code..."
