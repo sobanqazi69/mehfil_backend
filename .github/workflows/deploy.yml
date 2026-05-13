@@ -26,6 +26,7 @@ jobs:
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
+            git config --global --add safe.directory "$APP_DIR"
             cd "$APP_DIR"
 
             echo "→ Pulling latest code..."
