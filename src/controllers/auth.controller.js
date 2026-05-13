@@ -3,6 +3,7 @@ const prisma = require('../config/database');
 const { signAccess, signRefresh, verifyRefresh } = require('../utils/jwt.utils');
 const logger = require('../utils/logger');
 
+
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const googleAuth = async (req, res) => {
