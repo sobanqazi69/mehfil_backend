@@ -22,6 +22,12 @@ const registerRoomEvents = (io, socket) => {
         create: { roomId, userId, isMuted: true },
       });
 
+      // Original host regains control on re-join
+      if (room.creatorId === userId && room.hostId !== userId) {
+        await prisma.room.update({ where: { id: roomId }, data: { hostId: userId } });
+        logger.socket('host:restored', { roomId, userId });
+      }
+
       await redis.sadd(ROOM_MEMBERS_KEY(roomId), String(userId));
 
       const videoState = await redis.get(ROOM_STATE_KEY(roomId));
@@ -51,7 +57,7 @@ const registerRoomEvents = (io, socket) => {
       const room = await prisma.room.findUnique({ where: { id: roomId } });
       if (!room || room.hostId !== userId) return;
 
-      const state = { youtubeId, timestamp: 0, isPlaying: false };
+      const state = { youtubeId, timestampSec: 0, isPlaying: false };
       await redis.set(ROOM_STATE_KEY(roomId), JSON.stringify(state));
       await prisma.room.update({ where: { id: roomId }, data: { youtubeId, timestampSec: 0, isPlaying: false } });
 
@@ -59,6 +65,23 @@ const registerRoomEvents = (io, socket) => {
       logger.socket('video:load', { roomId, youtubeId });
     } catch (err) {
       logger.error('video:load error', err);
+    }
+  });
+
+  socket.on('video:queue', async ({ roomId, nextYoutubeId }) => {
+    try {
+      roomId = parseInt(roomId);
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room || room.hostId !== userId) return;
+
+      const state = { youtubeId: room.youtubeId, nextYoutubeId, timestampSec: room.timestampSec, isPlaying: room.isPlaying };
+      await redis.set(ROOM_STATE_KEY(roomId), JSON.stringify(state));
+      await prisma.room.update({ where: { id: roomId }, data: { nextYoutubeId } });
+
+      io.to(`room:${roomId}`).emit('video:state', state);
+      logger.socket('video:queue', { roomId, nextYoutubeId });
+    } catch (err) {
+      logger.error('video:queue error', err);
     }
   });
 
@@ -70,10 +93,10 @@ const registerRoomEvents = (io, socket) => {
 
       const existing = await redis.get(ROOM_STATE_KEY(roomId));
       const current = existing ? JSON.parse(existing) : {};
-      const state = { ...current, timestamp, isPlaying, updatedAt: Date.now() };
+      const state = { ...current, timestampSec: timestamp, isPlaying, updatedAt: Date.now() };
 
       await redis.set(ROOM_STATE_KEY(roomId), JSON.stringify(state));
-      io.to(`room:${roomId}`).emit('video:state', state);
+      socket.broadcast.to(`room:${roomId}`).emit('video:state', state);
     } catch (err) {
       logger.error('video:sync error', err);
     }
@@ -128,6 +151,20 @@ const registerRoomEvents = (io, socket) => {
     }
   });
 
+  socket.on('room:update_settings', async ({ roomId, isPublic }) => {
+    try {
+      roomId = parseInt(roomId);
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room || room.hostId !== userId) return;
+
+      await prisma.room.update({ where: { id: roomId }, data: { isPublic } });
+      io.to(`room:${roomId}`).emit('room:settings_updated', { isPublic });
+      logger.socket('room:update_settings', { roomId, isPublic });
+    } catch (err) {
+      logger.error('room:update_settings error', err);
+    }
+  });
+
   socket.on('disconnect', async () => {
     try {
       const rooms = Array.from(socket.rooms).filter((r) => r.startsWith('room:'));
@@ -142,9 +179,34 @@ const registerRoomEvents = (io, socket) => {
 };
 
 const handleLeave = async (io, roomId, userId) => {
-  await prisma.roomMember.deleteMany({ where: { roomId, userId } });
-  await redis.srem(ROOM_MEMBERS_KEY(roomId), String(userId));
-  await broadcastMembers(io, roomId);
+  try {
+    await prisma.roomMember.deleteMany({ where: { roomId, userId } });
+    await redis.srem(ROOM_MEMBERS_KEY(roomId), String(userId));
+
+    const remainingMembers = await prisma.roomMember.findMany({
+      where: { roomId },
+      orderBy: { joinedAt: 'asc' },
+    });
+
+    if (remainingMembers.length === 0) {
+      // Auto-delete room when empty
+      await prisma.room.delete({ where: { id: roomId } });
+      await redis.del(ROOM_STATE_KEY(roomId));
+      await redis.del(ROOM_MEMBERS_KEY(roomId));
+      logger.socket('room:deleted', { roomId });
+    } else {
+      // If host left, transfer host status
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (room && room.hostId === userId) {
+        const nextHost = remainingMembers[0].userId;
+        await prisma.room.update({ where: { id: roomId }, data: { hostId: nextHost } });
+        logger.socket('host:transferred', { roomId, from: userId, to: nextHost });
+      }
+      await broadcastMembers(io, roomId);
+    }
+  } catch (err) {
+    logger.error('handleLeave error', err);
+  }
 };
 
 const broadcastMembers = async (io, roomId) => {
@@ -152,7 +214,9 @@ const broadcastMembers = async (io, roomId) => {
     where: { roomId },
     include: { user: { select: { id: true, name: true, avatar: true } } },
   });
+  const room = await prisma.room.findUnique({ where: { id: roomId } });
   io.to(`room:${roomId}`).emit('room:members', {
+    hostId: room?.hostId,
     members: members.map((m) => ({
       userId: m.userId,
       name: m.user.name,

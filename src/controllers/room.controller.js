@@ -49,7 +49,7 @@ const createRoom = async (req, res) => {
   try {
     const { name, youtubeId } = req.body;
     const room = await prisma.room.create({
-      data: { name, youtubeId: youtubeId || null, isPublic: true, hostId: req.user.id },
+      data: { name, youtubeId: youtubeId || null, isPublic: true, hostId: req.user.id, creatorId: req.user.id },
       include: { host: { select: { id: true, name: true, avatar: true } } },
     });
     return res.status(201).json(room);
