@@ -23,8 +23,9 @@ jobs:
             set -e
 
             APP_DIR="/home/microdesk-mehfil/htdocs/mehfil.microdesk.tech"
-            export NVM_DIR="$HOME/.nvm"
+            export NVM_DIR="/home/microdesk-mehfil/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            export PATH="$NVM_DIR/versions/node/$(ls $NVM_DIR/versions/node | tail -1)/bin:$PATH"
 
             git config --global --add safe.directory "$APP_DIR"
             cd "$APP_DIR"
