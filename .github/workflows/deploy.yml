@@ -1,0 +1,46 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: SSH Deploy → mehfil.microdesk.tech
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -e
+
+            APP_DIR="/home/microdesk-mehfil/htdocs/mehfil.microdesk.tech"
+            cd "$APP_DIR"
+
+            echo "→ Pulling latest code..."
+            git pull origin main
+
+            echo "→ Installing dependencies..."
+            npm ci --omit=dev
+
+            echo "→ Generating Prisma client..."
+            npx prisma generate
+
+            echo "→ Running database migrations..."
+            npx prisma migrate deploy
+
+            echo "→ Restarting app with PM2..."
+            pm2 reload ecosystem.config.js --env production \
+              || pm2 start ecosystem.config.js --env production
+
+            pm2 save
+
+            echo "✓ Deploy complete"
