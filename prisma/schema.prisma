@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  googleId  String   @unique @map("google_id") @db.VarChar(255)
+  name      String   @db.VarChar(100)
+  email     String   @unique @db.VarChar(255)
+  avatar    String?  @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  hostedRooms Room[]       @relation("RoomHost")
+  messages    Message[]
+  roomMembers RoomMember[]
+
+  @@map("users")
+}
+
+model Room {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(150)
+  hostId       Int      @map("host_id")
+  isPublic     Boolean  @default(true) @map("is_public")
+  category     String?  @db.VarChar(50)
+  youtubeId    String?  @map("youtube_id") @db.VarChar(50)
+  timestampSec Float    @default(0) @map("timestamp_sec")
+  isPlaying    Boolean  @default(false) @map("is_playing")
+  isLive       Boolean  @default(true) @map("is_live")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  host     User         @relation("RoomHost", fields: [hostId], references: [id])
+  messages Message[]
+  members  RoomMember[]
+
+  @@map("rooms")
+}
+
+model Message {
+  id        Int      @id @default(autoincrement())
+  roomId    Int      @map("room_id")
+  userId    Int      @map("user_id")
+  text      String   @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("messages")
+}
+
+model RoomMember {
+  roomId   Int      @map("room_id")
+  userId   Int      @map("user_id")
+  isMuted  Boolean  @default(true) @map("is_muted")
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@id([roomId, userId])
+  @@map("room_members")
+}
