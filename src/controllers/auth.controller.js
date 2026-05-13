@@ -4,7 +4,13 @@ const { signAccess, signRefresh, verifyRefresh } = require('../utils/jwt.utils')
 const logger = require('../utils/logger');
 
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const googleClient = new OAuth2Client();
+
+// Accept tokens from both web and Android client IDs
+const VALID_AUDIENCES = [
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_ANDROID_CLIENT_ID,
+].filter(Boolean);
 
 const googleAuth = async (req, res) => {
   try {
@@ -13,7 +19,7 @@ const googleAuth = async (req, res) => {
 
     const ticket = await googleClient.verifyIdToken({
       idToken,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: VALID_AUDIENCES,
     });
 
     const { sub: googleId, name, email, picture: avatar } = ticket.getPayload();
