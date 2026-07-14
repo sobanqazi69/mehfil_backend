@@ -50,6 +50,7 @@ router.patch(
         })
         .optional()
         .nullable(),
+      bio: z.string().max(160).optional().nullable(),
     }),
   ),
   updateMe,

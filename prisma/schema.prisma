@@ -13,6 +13,7 @@ model User {
   name      String   @db.VarChar(100)
   /// Unique public handle, e.g. "soban". Null until the user picks one.
   username  String?  @unique @db.VarChar(30)
+  bio       String?  @db.VarChar(160)
   email     String   @unique @db.VarChar(255)
   avatar    String?  @db.VarChar(500)
   createdAt DateTime @default(now()) @map("created_at")

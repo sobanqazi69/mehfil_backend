@@ -16,7 +16,7 @@ const getMe = async (req, res) => {
 
 const updateMe = async (req, res) => {
   try {
-    const { name, avatar, username } = req.body;
+    const { name, avatar, username, bio } = req.body;
 
     const user = await prisma.user.update({
       where: { id: req.user.id },
@@ -26,6 +26,7 @@ const updateMe = async (req, res) => {
         ...(username !== undefined && {
           username: username ? username.toLowerCase() : null,
         }),
+        ...(bio !== undefined && { bio: bio || null }),
       },
     });
     return res.json(user);
