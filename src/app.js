@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -15,6 +16,17 @@ app.use(cors({ origin: process.env.CLIENT_URL || '*', credentials: true }));
 app.use(express.json({ limit: '10kb' }));
 
 if (process.env.NODE_ENV === 'development') app.use(morgan('dev'));
+
+// Uploaded avatars. Served from the same origin the app already talks to.
+app.use(
+  '/uploads',
+  express.static(path.join(__dirname, '../uploads'), {
+    maxAge: '7d',
+    // Avatars are public images; helmet's same-origin default would block them.
+    setHeaders: (res) =>
+      res.set('Cross-Origin-Resource-Policy', 'cross-origin'),
+  }),
+);
 
 app.use('/api', routes);
 

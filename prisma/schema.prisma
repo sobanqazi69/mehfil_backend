@@ -11,6 +11,8 @@ model User {
   id        Int      @id @default(autoincrement())
   googleId  String   @unique @map("google_id") @db.VarChar(255)
   name      String   @db.VarChar(100)
+  /// Unique public handle, e.g. "soban". Null until the user picks one.
+  username  String?  @unique @db.VarChar(30)
   email     String   @unique @db.VarChar(255)
   avatar    String?  @db.VarChar(500)
   createdAt DateTime @default(now()) @map("created_at")
