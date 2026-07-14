@@ -30,6 +30,11 @@ app.use(
 
 app.use('/api', routes);
 
+// Public privacy policy — required by the Play Console store listing.
+app.get('/privacy', (req, res) =>
+  res.sendFile(path.join(__dirname, '../public/privacy.html')),
+);
+
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 app.use((req, res) => res.status(404).json({ message: 'Route not found' }));
