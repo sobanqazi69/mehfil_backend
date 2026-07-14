@@ -215,6 +215,7 @@ const broadcastMembers = async (io, roomId) => {
   const members = await prisma.roomMember.findMany({
     where: { roomId },
     include: { user: { select: { id: true, name: true, avatar: true } } },
+    orderBy: { joinedAt: 'asc' },
   });
   const room = await prisma.room.findUnique({ where: { id: roomId } });
   io.to(`room:${roomId}`).emit('room:members', {

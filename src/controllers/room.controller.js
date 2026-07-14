@@ -66,7 +66,10 @@ const getRoom = async (req, res) => {
       where: { id: roomId },
       include: {
         host: { select: { id: true, name: true, avatar: true } },
-        members: { include: { user: { select: { id: true, name: true, avatar: true } } } },
+        members: {
+          include: { user: { select: { id: true, name: true, avatar: true } } },
+          orderBy: { joinedAt: 'asc' },
+        },
         _count: { select: { members: true } },
       },
     });
