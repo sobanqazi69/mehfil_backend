@@ -9,6 +9,11 @@ const initSocket = (httpServer) => {
       origin: process.env.CLIENT_URL || '*',
       methods: ['GET', 'POST'],
     },
+    // A killed mobile app never closes its socket cleanly, so departure is only
+    // detected by ping timeout. Defaults (25s + 20s) leave a ghost in the room
+    // for up to 45s; this cuts worst case to ~20s.
+    pingInterval: 10000,
+    pingTimeout: 10000,
   });
 
   io.use((socket, next) => {

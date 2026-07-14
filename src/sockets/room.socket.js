@@ -165,7 +165,9 @@ const registerRoomEvents = (io, socket) => {
     }
   });
 
-  socket.on('disconnect', async () => {
+  // 'disconnecting', not 'disconnect' — socket.io clears socket.rooms before
+  // 'disconnect' fires, so cleanup there would find nothing to leave.
+  socket.on('disconnecting', async () => {
     try {
       const rooms = Array.from(socket.rooms).filter((r) => r.startsWith('room:'));
       for (const roomKey of rooms) {
@@ -226,4 +228,36 @@ const broadcastMembers = async (io, roomId) => {
   });
 };
 
-module.exports = { registerRoomEvents };
+/**
+ * Runs once at boot. A crash or restart kills every socket without firing
+ * 'disconnecting', so any membership row that survived a restart belongs to a
+ * client that is no longer connected. Clear them, then drop the rooms they left
+ * empty — the same rule handleLeave applies at runtime.
+ */
+const reconcileStaleRooms = async () => {
+  try {
+    const { count: staleMembers } = await prisma.roomMember.deleteMany({});
+
+    const emptyRooms = await prisma.room.findMany({
+      where: { members: { none: {} } },
+      select: { id: true },
+    });
+    if (emptyRooms.length) {
+      const ids = emptyRooms.map((r) => r.id);
+      await prisma.room.deleteMany({ where: { id: { in: ids } } });
+      for (const id of ids) {
+        await redis.del(ROOM_STATE_KEY(id));
+        await redis.del(ROOM_MEMBERS_KEY(id));
+      }
+    }
+
+    logger.socket('rooms:reconciled', {
+      staleMembers,
+      roomsDeleted: emptyRooms.length,
+    });
+  } catch (err) {
+    logger.error('reconcileStaleRooms error', err);
+  }
+};
+
+module.exports = { registerRoomEvents, reconcileStaleRooms };
