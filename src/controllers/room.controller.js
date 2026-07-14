@@ -8,7 +8,12 @@ const browseRooms = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
 
-    const where = { isPublic: true, isLive: true };
+    // Rooms the user was kicked from are hidden from them for good.
+    const where = {
+      isPublic: true,
+      isLive: true,
+      bans: { none: { userId: req.user.id } },
+    };
 
     const [rooms, total] = await prisma.$transaction([
       prisma.room.findMany({
@@ -74,6 +79,14 @@ const getRoom = async (req, res) => {
       },
     });
     if (!room) return res.status(404).json({ message: 'Room not found' });
+
+    const ban = await prisma.roomBan.findUnique({
+      where: { roomId_userId: { roomId, userId: req.user.id } },
+    });
+    if (ban) {
+      return res.status(403).json({ message: 'You were removed from this room' });
+    }
+
     return res.json(room);
   } catch (err) {
     logger.error('getRoom failed', err);

@@ -22,6 +22,8 @@ const initSocket = (httpServer) => {
       if (!token) return next(new Error('Authentication required'));
       const payload = verifyAccess(token);
       socket.user = payload;
+      // socket.data survives fetchSockets(); socket.user does not.
+      socket.data.userId = payload.id;
       next();
     } catch {
       next(new Error('Invalid token'));

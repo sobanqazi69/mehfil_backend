@@ -14,6 +14,15 @@ const registerRoomEvents = (io, socket) => {
       const room = await prisma.room.findUnique({ where: { id: roomId } });
       if (!room) return socket.emit('room:error', { message: 'Room not found' });
 
+      // A kicked user can never come back.
+      const ban = await prisma.roomBan.findUnique({
+        where: { roomId_userId: { roomId, userId } },
+      });
+      if (ban) {
+        logger.socket('room:join_denied', { roomId, userId });
+        return socket.emit('room:kicked', { roomId });
+      }
+
       socket.join(`room:${roomId}`);
 
       await prisma.roomMember.upsert({
@@ -125,14 +134,33 @@ const registerRoomEvents = (io, socket) => {
     }
   });
 
+  // Self-mute. Refused while the host has you muted — only the host can lift
+  // that, otherwise a client could just unmute itself out of a moderation.
   socket.on('mic:toggle', async ({ roomId, isMuted }) => {
     try {
       roomId = parseInt(roomId);
+
+      const member = await prisma.roomMember.findUnique({
+        where: { roomId_userId: { roomId, userId } },
+      });
+      if (!member) return;
+
+      if (member.mutedByHost && !isMuted) {
+        return socket.emit('mic:blocked', {
+          message: 'The host has muted you',
+        });
+      }
+
       await prisma.roomMember.update({
         where: { roomId_userId: { roomId, userId } },
         data: { isMuted },
       });
-      io.to(`room:${roomId}`).emit('mic:state', { userId, isMuted });
+
+      io.to(`room:${roomId}`).emit('mic:state', {
+        userId,
+        isMuted,
+        mutedByHost: member.mutedByHost,
+      });
     } catch (err) {
       logger.error('mic:toggle error', err);
     }
@@ -144,10 +172,129 @@ const registerRoomEvents = (io, socket) => {
       const room = await prisma.room.findUnique({ where: { id: roomId } });
       if (!room || room.hostId !== userId) return;
 
-      await prisma.roomMember.updateMany({ where: { roomId }, data: { isMuted: true } });
+      // Mute-all is a host action, so it sets the host lock too — listeners
+      // cannot immediately unmute themselves out of it.
+      await prisma.roomMember.updateMany({
+        where: { roomId, userId: { not: userId } },
+        data: { isMuted: true, mutedByHost: true },
+      });
       io.to(`room:${roomId}`).emit('mic:muted_all');
+      await broadcastMembers(io, roomId);
     } catch (err) {
       logger.error('mic:mute_all error', err);
+    }
+  });
+
+  // Host force-mutes / unmutes another listener.
+  socket.on('mic:force_toggle', async ({ roomId, targetUserId, isMuted }) => {
+    try {
+      roomId = parseInt(roomId);
+      targetUserId = parseInt(targetUserId);
+
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room || room.hostId !== userId) return;
+      if (targetUserId === userId) return; // host uses mic:toggle for itself
+
+      const member = await prisma.roomMember.findUnique({
+        where: { roomId_userId: { roomId, userId: targetUserId } },
+      });
+      if (!member) return;
+
+      const mutedByHost = Boolean(isMuted);
+
+      // Host-mute is its own flag. Muting also forces isMuted so the mic is
+      // actually off; unmuting only lifts the host lock and hands control back
+      // — the member's own isMuted stands.
+      await prisma.roomMember.update({
+        where: { roomId_userId: { roomId, userId: targetUserId } },
+        data: mutedByHost
+          ? { mutedByHost: true, isMuted: true }
+          : { mutedByHost: false },
+      });
+
+      const updated = await prisma.roomMember.findUnique({
+        where: { roomId_userId: { roomId, userId: targetUserId } },
+      });
+
+      io.to(`room:${roomId}`).emit('mic:state', {
+        userId: targetUserId,
+        isMuted: updated.isMuted,
+        mutedByHost: updated.mutedByHost,
+      });
+      logger.socket('mic:force_toggle', { roomId, targetUserId, mutedByHost });
+    } catch (err) {
+      logger.error('mic:force_toggle error', err);
+    }
+  });
+
+  // Host hands the room to another listener and becomes a normal user.
+  socket.on('room:transfer_host', async ({ roomId, targetUserId }) => {
+    try {
+      roomId = parseInt(roomId);
+      targetUserId = parseInt(targetUserId);
+
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room || room.hostId !== userId) return;
+      if (targetUserId === userId) return;
+
+      const member = await prisma.roomMember.findUnique({
+        where: { roomId_userId: { roomId, userId: targetUserId } },
+      });
+      if (!member) return;
+
+      // creatorId moves too. It is what room:join uses to auto-restore host on
+      // rejoin — leaving it behind would let the old host silently steal the
+      // room back the next time they reconnect.
+      await prisma.room.update({
+        where: { id: roomId },
+        data: { hostId: targetUserId, creatorId: targetUserId },
+      });
+
+      io.to(`room:${roomId}`).emit('room:host_changed', {
+        hostId: targetUserId,
+      });
+      await broadcastMembers(io, roomId);
+      logger.socket('room:transfer_host', { roomId, from: userId, to: targetUserId });
+    } catch (err) {
+      logger.error('room:transfer_host error', err);
+    }
+  });
+
+  // Host removes a listener from the room.
+  socket.on('room:kick', async ({ roomId, targetUserId }) => {
+    try {
+      roomId = parseInt(roomId);
+      targetUserId = parseInt(targetUserId);
+
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room || room.hostId !== userId) return;
+      if (targetUserId === userId) return; // host cannot kick itself
+
+      const roomKey = `room:${roomId}`;
+
+      // Permanent ban: room:join is refused and the room is hidden from browse.
+      await prisma.roomBan.upsert({
+        where: { roomId_userId: { roomId, userId: targetUserId } },
+        update: {},
+        create: { roomId, userId: targetUserId },
+      });
+
+      // Tell the kicked user's sockets and take them out of the room, so a
+      // rejoin has to go through room:join again.
+      const sockets = await io.in(roomKey).fetchSockets();
+      for (const s of sockets) {
+        if (s.data.userId === targetUserId) {
+          s.emit('room:kicked', { roomId });
+          s.leave(roomKey);
+        }
+      }
+
+      // Same cleanup a voluntary leave does: drop membership, transfer host if
+      // needed, delete the room when it empties, rebroadcast the roster.
+      await handleLeave(io, roomId, targetUserId);
+      logger.socket('room:kick', { roomId, targetUserId, by: userId });
+    } catch (err) {
+      logger.error('room:kick error', err);
     }
   });
 
@@ -225,6 +372,7 @@ const broadcastMembers = async (io, roomId) => {
       name: m.user.name,
       avatar: m.user.avatar,
       isMuted: m.isMuted,
+      mutedByHost: m.mutedByHost,
     })),
   });
 };

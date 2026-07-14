@@ -18,6 +18,7 @@ model User {
   hostedRooms Room[]       @relation("RoomHost")
   messages    Message[]
   roomMembers RoomMember[]
+  roomBans    RoomBan[]
 
   @@map("users")
 }
@@ -38,8 +39,23 @@ model Room {
   host     User         @relation("RoomHost", fields: [hostId], references: [id])
   messages Message[]
   members  RoomMember[]
+  bans     RoomBan[]
 
   @@map("rooms")
+}
+
+/// A user the host removed from a room. Bans are permanent: the room is hidden
+/// from browse and room:join is refused.
+model RoomBan {
+  roomId   Int      @map("room_id")
+  userId   Int      @map("user_id")
+  bannedAt DateTime @default(now()) @map("banned_at")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@id([roomId, userId])
+  @@map("room_bans")
 }
 
 model Message {
@@ -58,7 +74,11 @@ model Message {
 model RoomMember {
   roomId   Int      @map("room_id")
   userId   Int      @map("user_id")
+  /// The user muted their own mic.
   isMuted  Boolean  @default(true) @map("is_muted")
+  /// The host muted them. Only the host can clear this — the user cannot
+  /// unmute themselves out of it.
+  mutedByHost Boolean @default(false) @map("muted_by_host")
   joinedAt DateTime @default(now()) @map("joined_at")
 
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
