@@ -185,6 +185,27 @@ const registerRoomEvents = (io, socket) => {
     }
   });
 
+  // Host lifts the mute on everyone and hands their mics back.
+  socket.on('mic:unmute_all', async ({ roomId }) => {
+    try {
+      roomId = parseInt(roomId);
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room || room.hostId !== userId) return;
+
+      // Clear the host lock and open their mics, so "unmute all" actually lets
+      // people speak rather than just permitting them to unmute themselves.
+      await prisma.roomMember.updateMany({
+        where: { roomId, userId: { not: userId } },
+        data: { isMuted: false, mutedByHost: false },
+      });
+
+      await broadcastMembers(io, roomId);
+      logger.socket('mic:unmute_all', { roomId, by: userId });
+    } catch (err) {
+      logger.error('mic:unmute_all error', err);
+    }
+  });
+
   // Host force-mutes / unmutes another listener.
   socket.on('mic:force_toggle', async ({ roomId, targetUserId, isMuted }) => {
     try {
