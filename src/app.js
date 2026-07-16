@@ -35,6 +35,11 @@ app.get('/privacy', (req, res) =>
   res.sendFile(path.join(__dirname, '../public/privacy.html')),
 );
 
+// Public account-deletion instructions — required by Play's Data safety form.
+app.get('/delete-account', (req, res) =>
+  res.sendFile(path.join(__dirname, '../public/delete-account.html')),
+);
+
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 app.use((req, res) => res.status(404).json({ message: 'Route not found' }));
