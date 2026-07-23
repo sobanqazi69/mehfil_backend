@@ -38,7 +38,8 @@ const nextChangeAt = new Map();
 const rotateVideo = async (roomId) => {
   try {
     const room = await prisma.room.findUnique({ where: { id: roomId } });
-    if (!room || !room.isBotRoom) {
+    // Disabled bot rooms stop rotating until an admin re-enables them.
+    if (!room || !room.isBotRoom || !room.isLive) {
       nextChangeAt.delete(roomId);
       return;
     }
@@ -140,7 +141,7 @@ const onUserJoined = async (roomId, userId) => {
 const tick = async () => {
   try {
     const rooms = await prisma.room.findMany({
-      where: { isBotRoom: true },
+      where: { isBotRoom: true, isLive: true },
       select: { id: true },
     });
 

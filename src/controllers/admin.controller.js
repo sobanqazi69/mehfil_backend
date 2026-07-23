@@ -207,6 +207,62 @@ const recentMessages = async (req, res) => {
   }
 };
 
+/** Show/hide a single room from browse without deleting it. */
+const setRoomLive = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const isLive = Boolean(req.body.isLive);
+
+    const room = await prisma.room.findUnique({ where: { id } });
+    if (!room) return res.status(404).json({ message: 'Room not found' });
+
+    await prisma.room.update({ where: { id }, data: { isLive } });
+    logger.warn('admin toggled room', { id, isLive, by: req.admin?.email });
+    return res.json({ ok: true, isLive });
+  } catch (err) {
+    logger.error('admin setRoomLive failed', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+/**
+ * Master switch for every bot room. Disabling hides them from browse and stops
+ * the rotation loop; the rooms, playlists and bot listeners are all preserved,
+ * so re-enabling restores them exactly as they were.
+ */
+const setBotsEnabled = async (req, res) => {
+  try {
+    const enabled = Boolean(req.body.enabled);
+    const { count } = await prisma.room.updateMany({
+      where: { isBotRoom: true },
+      data: { isLive: enabled },
+    });
+    logger.warn('admin toggled all bot rooms', {
+      enabled,
+      count,
+      by: req.admin?.email,
+    });
+    return res.json({ ok: true, enabled, count });
+  } catch (err) {
+    logger.error('admin setBotsEnabled failed', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+/** Whether bot rooms are currently visible, for the panel's toggle state. */
+const botsStatus = async (_req, res) => {
+  try {
+    const [total, live] = await prisma.$transaction([
+      prisma.room.count({ where: { isBotRoom: true } }),
+      prisma.room.count({ where: { isBotRoom: true, isLive: true } }),
+    ]);
+    return res.json({ total, live, enabled: live > 0 });
+  } catch (err) {
+    logger.error('admin botsStatus failed', err);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 const deleteRoom = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -251,6 +307,9 @@ const deleteUser = async (req, res) => {
 
 module.exports = {
   login,
+  setRoomLive,
+  setBotsEnabled,
+  botsStatus,
   stats,
   listUsers,
   listRooms,

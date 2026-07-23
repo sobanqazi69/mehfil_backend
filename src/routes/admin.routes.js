@@ -9,6 +9,9 @@ const {
   recentMessages,
   deleteRoom,
   deleteUser,
+  setRoomLive,
+  setBotsEnabled,
+  botsStatus,
 } = require('../controllers/admin.controller');
 const { requireAdmin } = require('../middleware/admin.middleware');
 const { validate } = require('../middleware/validate.middleware');
@@ -36,6 +39,9 @@ router.get('/stats', stats);
 router.get('/users', listUsers);
 router.get('/rooms', listRooms);
 router.get('/messages', recentMessages);
+router.get('/bots/status', botsStatus);
+router.post('/bots/toggle', setBotsEnabled);
+router.patch('/rooms/:id/live', setRoomLive);
 router.delete('/rooms/:id', deleteRoom);
 router.delete('/users/:id', deleteUser);
 
