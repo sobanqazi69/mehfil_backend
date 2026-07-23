@@ -12,7 +12,26 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || '*', credentials: true }));
+// The admin panel is served from its own origin, so allow it alongside the
+// app's. ADMIN_URL may be a comma-separated list (e.g. localhost + production).
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  ...String(process.env.ADMIN_URL || '')
+    .split(',')
+    .map((o) => o.trim()),
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // Non-browser callers (curl, the mobile app) send no Origin header.
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.length === 0) return cb(null, true);
+      return cb(null, allowedOrigins.includes(origin));
+    },
+    credentials: true,
+  }),
+);
 app.use(express.json({ limit: '10kb' }));
 
 if (process.env.NODE_ENV === 'development') app.use(morgan('dev'));

@@ -6,5 +6,6 @@ router.use('/auth', require('./auth.routes'));
 router.use('/users', require('./user.routes'));
 router.use('/rooms', require('./room.routes'));
 router.use('/voice', require('./voice.routes'));
+router.use('/admin', require('./admin.routes'));
 
 module.exports = router;
