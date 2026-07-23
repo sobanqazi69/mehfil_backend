@@ -395,7 +395,9 @@ const handleLeave = async (io, roomId, userId) => {
 const broadcastMembers = async (io, roomId) => {
   const members = await prisma.roomMember.findMany({
     where: { roomId },
-    include: { user: { select: { id: true, name: true, avatar: true } } },
+    include: {
+      user: { select: { id: true, name: true, avatar: true, isBot: true } },
+    },
     orderBy: { joinedAt: 'asc' },
   });
   const room = await prisma.room.findUnique({ where: { id: roomId } });
@@ -407,6 +409,7 @@ const broadcastMembers = async (io, roomId) => {
       avatar: m.user.avatar,
       isMuted: m.isMuted,
       mutedByHost: m.mutedByHost,
+      isBot: m.user.isBot,
     })),
   });
 };
@@ -419,10 +422,14 @@ const broadcastMembers = async (io, roomId) => {
  */
 const reconcileStaleRooms = async () => {
   try {
-    const { count: staleMembers } = await prisma.roomMember.deleteMany({});
+    // Bot rooms are server-run channels: their bot listeners are permanent and
+    // must survive restarts, so exclude them from both sweeps.
+    const { count: staleMembers } = await prisma.roomMember.deleteMany({
+      where: { room: { isBotRoom: false } },
+    });
 
     const emptyRooms = await prisma.room.findMany({
-      where: { members: { none: {} } },
+      where: { isBotRoom: false, members: { none: {} } },
       select: { id: true },
     });
     if (emptyRooms.length) {

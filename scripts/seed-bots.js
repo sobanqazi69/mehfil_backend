@@ -10,6 +10,15 @@
 require('dotenv').config({ quiet: true });
 const prisma = require('../src/config/database');
 
+// Photo-realistic portraits so bot listeners don't look like cartoons. These
+// are stock placeholder faces, and every bot is still surfaced with a visible
+// BOT badge in the app — they are never passed off as real accounts.
+const PORTRAITS = Array.from({ length: 25 }, (_, i) =>
+  i % 2 === 0
+    ? `https://randomuser.me/api/portraits/men/${20 + i}.jpg`
+    : `https://randomuser.me/api/portraits/women/${20 + i}.jpg`,
+);
+
 const BOT_NAMES = [
   'Ayaan', 'Zara', 'Hamza', 'Iqra', 'Bilal', 'Noor', 'Usman', 'Sana',
   'Faisal', 'Mahnoor', 'Danish', 'Areeba', 'Talha', 'Hira', 'Saad',
@@ -21,26 +30,406 @@ const BOT_NAMES = [
 // durations are rough runtimes in seconds; the rotator uses them as the
 // "now playing" window.
 const CHANNELS = [
-  { name: '🎧 Lofi & Chill',        videos: [['jfKfPfyJRdk', 'lofi hip hop radio', 600], ['4xDzrJKXOOY', 'synthwave radio', 600], ['S_MOd40zlYU', 'dark ambient', 600]] },
-  { name: '🔥 Bollywood Hits',      videos: [['ELIWc7Wnczo', 'Bollywood Mashup', 300], ['pElk1ShPrcE', 'Party Anthems', 280], ['0eSK5UNwHhY', 'Dance Hits', 300]] },
-  { name: '🎸 Coke Studio Pakistan', videos: [['Ic2p-yRnbLM', 'Pasoori', 260], ['pnjjcS9wIkU', 'Tu Jhoom', 300], ['ARLcbdKzKTk', 'Kana Yaari', 240]] },
-  { name: '🕌 Naat & Qawwali',      videos: [['0ehXEZfd3sk', 'Qawwali Night', 400], ['jZDgAF7gPqE', 'Sufi Classics', 380], ['gEcdEHXWyGk', 'Spiritual Vibes', 360]] },
-  { name: '⚡ Gaming Beats',         videos: [['bpJj_S_Cbcw', 'Gaming Mix', 320], ['dQw4w9WgXcQ', 'Classic Energy', 213], ['5qap5aO4i9A', 'Focus Beats', 600]] },
-  { name: '🌙 Late Night Urdu',     videos: [['pElk1ShPrcE', 'Night Drive', 280], ['ELIWc7Wnczo', 'Slow Jams', 300], ['jfKfPfyJRdk', 'Midnight Lofi', 600]] },
-  { name: '🎬 Movie Trailers',      videos: [['d9MyW72ELq0', 'Trailer Mix', 180], ['TcMBFSGVi1c', 'Action Reel', 170], ['6ZfuNTqbHE8', 'Blockbusters', 190]] },
-  { name: '💪 Workout Energy',      videos: [['bpJj_S_Cbcw', 'Gym Mix', 320], ['4xDzrJKXOOY', 'Pump Up', 600], ['pElk1ShPrcE', 'Cardio Beats', 280]] },
-  { name: '📚 Study With Me',       videos: [['5qap5aO4i9A', 'Study Beats', 600], ['jfKfPfyJRdk', 'Deep Focus', 600], ['S_MOd40zlYU', 'Ambient Study', 600]] },
-  { name: '🎤 Punjabi Bangers',     videos: [['0eSK5UNwHhY', 'Punjabi Mix', 300], ['ELIWc7Wnczo', 'Bhangra Beats', 300], ['pnjjcS9wIkU', 'Desi Vibes', 300]] },
-  { name: '🌊 Ambient Ocean',       videos: [['S_MOd40zlYU', 'Ocean Sounds', 600], ['jfKfPfyJRdk', 'Calm Waves', 600], ['5qap5aO4i9A', 'Deep Blue', 600]] },
-  { name: '🎹 Piano Lounge',        videos: [['5qap5aO4i9A', 'Piano Bar', 600], ['S_MOd40zlYU', 'Soft Keys', 600], ['jfKfPfyJRdk', 'Evening Piano', 600]] },
-  { name: '🚗 Drive Mode',          videos: [['4xDzrJKXOOY', 'Night Drive', 600], ['pElk1ShPrcE', 'Highway Mix', 280], ['0eSK5UNwHhY', 'Road Trip', 300]] },
-  { name: '☕ Morning Coffee',      videos: [['jfKfPfyJRdk', 'Morning Lofi', 600], ['5qap5aO4i9A', 'Sunrise Jazz', 600], ['S_MOd40zlYU', 'Slow Start', 600]] },
-  { name: '🕺 Retro 90s',           videos: [['dQw4w9WgXcQ', '90s Classics', 213], ['ELIWc7Wnczo', 'Retro Mix', 300], ['pElk1ShPrcE', 'Throwback', 280]] },
-  { name: '🎺 Jazz Corner',         videos: [['5qap5aO4i9A', 'Smooth Jazz', 600], ['jfKfPfyJRdk', 'Late Jazz', 600], ['S_MOd40zlYU', 'Blue Note', 600]] },
-  { name: '🌸 K-Pop Zone',          videos: [['pElk1ShPrcE', 'K-Pop Hits', 280], ['0eSK5UNwHhY', 'Idol Mix', 300], ['ELIWc7Wnczo', 'Dance Practice', 300]] },
-  { name: '🛕 Ghazal Evenings',     videos: [['jZDgAF7gPqE', 'Ghazal Classics', 380], ['0ehXEZfd3sk', 'Urdu Poetry', 400], ['gEcdEHXWyGk', 'Soulful', 360]] },
-  { name: '🎮 Esports Highlights',  videos: [['bpJj_S_Cbcw', 'Highlight Reel', 320], ['d9MyW72ELq0', 'Best Plays', 180], ['TcMBFSGVi1c', 'Clutch Moments', 170]] },
-  { name: '✨ Trending Now',        videos: [['ELIWc7Wnczo', 'Trending Mix', 300], ['pnjjcS9wIkU', 'Viral Hits', 300], ['0eSK5UNwHhY', 'Top Charts', 300]] },
+  {
+    name: "🎧 Lofi & Chill",
+    videos: [
+      [
+        "jfKfPfyJRdk",
+        "lofi hip hop radio 📚 beats to relax/study to",
+        300
+      ],
+      [
+        "4xDzrJKXOOY",
+        "synthwave radio 🌌 beats to chill/game to",
+        300
+      ],
+      [
+        "S_MOd40zlYU",
+        "dark ambient radio 🌃 music to escape/dream to",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🌌 Synthwave Nights",
+    videos: [
+      [
+        "pElk1ShPrcE",
+        "Ainvayi Ainvayi Song | Band Baaja Baaraat | Ranveer Singh, Anushka Sharma |  Sun",
+        300
+      ],
+      [
+        "5qap5aO4i9A",
+        "lofi hip hop radio - beats to relax/study to",
+        300
+      ],
+      [
+        "dQw4w9WgXcQ",
+        "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🌃 Dark Ambient",
+    videos: [
+      [
+        "d9MyW72ELq0",
+        "Avatar: The Way of Water | Official Trailer",
+        300
+      ],
+      [
+        "TcMBFSGVi1c",
+        "Marvel Studios Avengers: Endgame - Official Trailer",
+        300
+      ],
+      [
+        "6ZfuNTqbHE8",
+        "Marvel Studios Avengers: Infinity War Official Trailer",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🎬 Movie Trailers",
+    videos: [
+      [
+        "9K073PKBBs4",
+        "Punjab Pind fs 25 😍 Tractors Modification Start karti  🚜 | Episode #3 x BrarTV",
+        300
+      ],
+      [
+        "twFWaOvlsuk",
+        "Punjab Pind  in fs 25 😍 Mitti da kam start  🚜 | Episode #2 x BrarTV",
+        300
+      ],
+      [
+        "amjLzsek5K0",
+        "Arjun NOVO  vs 🌾Jhone Wali Machine  in Fs 25 Indian Farming x BrarTV",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🚜 Desi Farming",
+    videos: [
+      [
+        "t0Q2otsqC4I",
+        "Tom & Jerry | Tom & Jerry in Full Screen | Classic Cartoon Compilation | WB Kids",
+        300
+      ],
+      [
+        "jfKfPfyJRdk",
+        "lofi hip hop radio 📚 beats to relax/study to",
+        300
+      ],
+      [
+        "4xDzrJKXOOY",
+        "synthwave radio 🌌 beats to chill/game to",
+        300
+      ]
+    ]
+  },
+  {
+    name: "😹 Cartoon Classics",
+    videos: [
+      [
+        "S_MOd40zlYU",
+        "dark ambient radio 🌃 music to escape/dream to",
+        300
+      ],
+      [
+        "pElk1ShPrcE",
+        "Ainvayi Ainvayi Song | Band Baaja Baaraat | Ranveer Singh, Anushka Sharma |  Sun",
+        300
+      ],
+      [
+        "5qap5aO4i9A",
+        "lofi hip hop radio - beats to relax/study to",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🔥 Bollywood Hits",
+    videos: [
+      [
+        "dQw4w9WgXcQ",
+        "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+        300
+      ],
+      [
+        "d9MyW72ELq0",
+        "Avatar: The Way of Water | Official Trailer",
+        300
+      ],
+      [
+        "TcMBFSGVi1c",
+        "Marvel Studios Avengers: Endgame - Official Trailer",
+        300
+      ]
+    ]
+  },
+  {
+    name: "📚 Study With Me",
+    videos: [
+      [
+        "6ZfuNTqbHE8",
+        "Marvel Studios Avengers: Infinity War Official Trailer",
+        300
+      ],
+      [
+        "9K073PKBBs4",
+        "Punjab Pind fs 25 😍 Tractors Modification Start karti  🚜 | Episode #3 x BrarTV",
+        300
+      ],
+      [
+        "twFWaOvlsuk",
+        "Punjab Pind  in fs 25 😍 Mitti da kam start  🚜 | Episode #2 x BrarTV",
+        300
+      ]
+    ]
+  },
+  {
+    name: "💪 Workout Energy",
+    videos: [
+      [
+        "amjLzsek5K0",
+        "Arjun NOVO  vs 🌾Jhone Wali Machine  in Fs 25 Indian Farming x BrarTV",
+        300
+      ],
+      [
+        "t0Q2otsqC4I",
+        "Tom & Jerry | Tom & Jerry in Full Screen | Classic Cartoon Compilation | WB Kids",
+        300
+      ],
+      [
+        "jfKfPfyJRdk",
+        "lofi hip hop radio 📚 beats to relax/study to",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🌊 Chill Waves",
+    videos: [
+      [
+        "4xDzrJKXOOY",
+        "synthwave radio 🌌 beats to chill/game to",
+        300
+      ],
+      [
+        "S_MOd40zlYU",
+        "dark ambient radio 🌃 music to escape/dream to",
+        300
+      ],
+      [
+        "pElk1ShPrcE",
+        "Ainvayi Ainvayi Song | Band Baaja Baaraat | Ranveer Singh, Anushka Sharma |  Sun",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🎹 Piano Lounge",
+    videos: [
+      [
+        "5qap5aO4i9A",
+        "lofi hip hop radio - beats to relax/study to",
+        300
+      ],
+      [
+        "dQw4w9WgXcQ",
+        "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+        300
+      ],
+      [
+        "d9MyW72ELq0",
+        "Avatar: The Way of Water | Official Trailer",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🚗 Drive Mode",
+    videos: [
+      [
+        "TcMBFSGVi1c",
+        "Marvel Studios Avengers: Endgame - Official Trailer",
+        300
+      ],
+      [
+        "6ZfuNTqbHE8",
+        "Marvel Studios Avengers: Infinity War Official Trailer",
+        300
+      ],
+      [
+        "9K073PKBBs4",
+        "Punjab Pind fs 25 😍 Tractors Modification Start karti  🚜 | Episode #3 x BrarTV",
+        300
+      ]
+    ]
+  },
+  {
+    name: "☕ Morning Coffee",
+    videos: [
+      [
+        "twFWaOvlsuk",
+        "Punjab Pind  in fs 25 😍 Mitti da kam start  🚜 | Episode #2 x BrarTV",
+        300
+      ],
+      [
+        "amjLzsek5K0",
+        "Arjun NOVO  vs 🌾Jhone Wali Machine  in Fs 25 Indian Farming x BrarTV",
+        300
+      ],
+      [
+        "t0Q2otsqC4I",
+        "Tom & Jerry | Tom & Jerry in Full Screen | Classic Cartoon Compilation | WB Kids",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🕺 Retro Hits",
+    videos: [
+      [
+        "jfKfPfyJRdk",
+        "lofi hip hop radio 📚 beats to relax/study to",
+        300
+      ],
+      [
+        "4xDzrJKXOOY",
+        "synthwave radio 🌌 beats to chill/game to",
+        300
+      ],
+      [
+        "S_MOd40zlYU",
+        "dark ambient radio 🌃 music to escape/dream to",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🎺 Late Night",
+    videos: [
+      [
+        "pElk1ShPrcE",
+        "Ainvayi Ainvayi Song | Band Baaja Baaraat | Ranveer Singh, Anushka Sharma |  Sun",
+        300
+      ],
+      [
+        "5qap5aO4i9A",
+        "lofi hip hop radio - beats to relax/study to",
+        300
+      ],
+      [
+        "dQw4w9WgXcQ",
+        "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🌸 Feel Good",
+    videos: [
+      [
+        "d9MyW72ELq0",
+        "Avatar: The Way of Water | Official Trailer",
+        300
+      ],
+      [
+        "TcMBFSGVi1c",
+        "Marvel Studios Avengers: Endgame - Official Trailer",
+        300
+      ],
+      [
+        "6ZfuNTqbHE8",
+        "Marvel Studios Avengers: Infinity War Official Trailer",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🎮 Gaming Vibes",
+    videos: [
+      [
+        "9K073PKBBs4",
+        "Punjab Pind fs 25 😍 Tractors Modification Start karti  🚜 | Episode #3 x BrarTV",
+        300
+      ],
+      [
+        "twFWaOvlsuk",
+        "Punjab Pind  in fs 25 😍 Mitti da kam start  🚜 | Episode #2 x BrarTV",
+        300
+      ],
+      [
+        "amjLzsek5K0",
+        "Arjun NOVO  vs 🌾Jhone Wali Machine  in Fs 25 Indian Farming x BrarTV",
+        300
+      ]
+    ]
+  },
+  {
+    name: "✨ Trending Now",
+    videos: [
+      [
+        "t0Q2otsqC4I",
+        "Tom & Jerry | Tom & Jerry in Full Screen | Classic Cartoon Compilation | WB Kids",
+        300
+      ],
+      [
+        "jfKfPfyJRdk",
+        "lofi hip hop radio 📚 beats to relax/study to",
+        300
+      ],
+      [
+        "4xDzrJKXOOY",
+        "synthwave radio 🌌 beats to chill/game to",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🛕 Evening Calm",
+    videos: [
+      [
+        "S_MOd40zlYU",
+        "dark ambient radio 🌃 music to escape/dream to",
+        300
+      ],
+      [
+        "pElk1ShPrcE",
+        "Ainvayi Ainvayi Song | Band Baaja Baaraat | Ranveer Singh, Anushka Sharma |  Sun",
+        300
+      ],
+      [
+        "5qap5aO4i9A",
+        "lofi hip hop radio - beats to relax/study to",
+        300
+      ]
+    ]
+  },
+  {
+    name: "🎤 Party Mode",
+    videos: [
+      [
+        "dQw4w9WgXcQ",
+        "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+        300
+      ],
+      [
+        "d9MyW72ELq0",
+        "Avatar: The Way of Water | Official Trailer",
+        300
+      ],
+      [
+        "TcMBFSGVi1c",
+        "Marvel Studios Avengers: Endgame - Official Trailer",
+        300
+      ]
+    ]
+  }
 ];
 
 const rand = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
@@ -63,13 +452,18 @@ async function main() {
     const handle = name.toLowerCase();
     const bot = await prisma.user.upsert({
       where: { googleId: `bot_${handle}` },
-      update: { isBot: true },
+      update: {
+        isBot: true,
+        // Refresh on every run so avatar/bio changes actually take effect.
+        avatar: PORTRAITS[BOT_NAMES.indexOf(name) % PORTRAITS.length],
+        bio: 'Mehfil channel bot 🤖',
+      },
       create: {
         googleId: `bot_${handle}`,
         name,
         username: `${handle}_bot`,
         email: `${handle}.bot@mehfil.local`,
-        avatar: `https://api.dicebear.com/7.x/avataaars/png?seed=${handle}`,
+        avatar: PORTRAITS[BOT_NAMES.indexOf(name) % PORTRAITS.length],
         bio: 'Mehfil channel bot 🤖',
         isBot: true,
       },
