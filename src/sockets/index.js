@@ -35,6 +35,9 @@ const initSocket = (httpServer) => {
     registerRoomEvents(io, socket);
   });
 
+  // Drives bot-room video rotation and greetings.
+  require('../services/bot.service').start(io);
+
   return io;
 };
 

@@ -1,6 +1,7 @@
 const prisma = require('../config/database');
 const redis = require('../config/redis');
 const logger = require('../utils/logger');
+const botService = require('../services/bot.service');
 
 const ROOM_STATE_KEY = (roomId) => `room:${roomId}:state`;
 const ROOM_MEMBERS_KEY = (roomId) => `room:${roomId}:members`;
@@ -44,6 +45,9 @@ const registerRoomEvents = (io, socket) => {
 
       await broadcastMembers(io, roomId);
       logger.socket('room:join', { roomId, userId });
+
+      // Bot rooms welcome real arrivals. Fire-and-forget.
+      botService.onUserJoined(roomId, userId);
     } catch (err) {
       logger.error('room:join error', err);
       socket.emit('room:error', { message: 'Failed to join room' });
@@ -357,6 +361,15 @@ const handleLeave = async (io, roomId, userId) => {
       where: { roomId },
       orderBy: { joinedAt: 'asc' },
     });
+
+    const room0 = await prisma.room.findUnique({ where: { id: roomId } });
+
+    // Bot rooms are permanent channels — never auto-delete them, and never
+    // transfer their host away from the owning bot account.
+    if (room0?.isBotRoom) {
+      await broadcastMembers(io, roomId);
+      return;
+    }
 
     if (remainingMembers.length === 0) {
       // Auto-delete room when empty

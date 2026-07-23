@@ -16,6 +16,9 @@ model User {
   bio       String?  @db.VarChar(160)
   email     String   @unique @db.VarChar(255)
   avatar    String?  @db.VarChar(500)
+  /// Automated account. Always surfaced with a visible BOT badge in the app —
+  /// never presented as a real person.
+  isBot     Boolean  @default(false) @map("is_bot")
   createdAt DateTime @default(now()) @map("created_at")
 
   hostedRooms Room[]       @relation("RoomHost")
@@ -37,14 +40,34 @@ model Room {
   timestampSec Float    @default(0) @map("timestamp_sec")
   isPlaying    Boolean  @default(false) @map("is_playing")
   isLive       Boolean  @default(true) @map("is_live")
+  /// Auto-playing channel run by the server: rotates videos on a timer and is
+  /// populated by bot listeners. Labelled as such in the UI.
+  isBotRoom    Boolean  @default(false) @map("is_bot_room")
   createdAt    DateTime @default(now()) @map("created_at")
 
   host     User         @relation("RoomHost", fields: [hostId], references: [id])
   messages Message[]
   members  RoomMember[]
   bans     RoomBan[]
+  playlist BotPlaylistItem[]
 
   @@map("rooms")
+}
+
+/// Videos a bot room cycles through, in order.
+model BotPlaylistItem {
+  id        Int      @id @default(autoincrement())
+  roomId    Int      @map("room_id")
+  youtubeId String   @map("youtube_id") @db.VarChar(50)
+  title     String   @db.VarChar(200)
+  /// Seconds; drives how long before the room rotates to the next video.
+  duration  Int      @default(240)
+  position  Int      @default(0)
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, position])
+  @@map("bot_playlist_items")
 }
 
 /// A user the host removed from a room. Bans are permanent: the room is hidden
