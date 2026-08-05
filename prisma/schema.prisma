@@ -25,6 +25,7 @@ model User {
   messages    Message[]
   roomMembers RoomMember[]
   roomBans    RoomBan[]
+  roomSeats   RoomSeat[]
 
   @@map("users")
 }
@@ -43,15 +44,49 @@ model Room {
   /// Auto-playing channel run by the server: rotates videos on a timer and is
   /// populated by bot listeners. Labelled as such in the UI.
   isBotRoom    Boolean  @default(false) @map("is_bot_room")
+  /// How many mic slots the room has. Only seated users may speak.
+  maxSeats     Int      @default(5) @map("max_seats")
   createdAt    DateTime @default(now()) @map("created_at")
 
   host     User         @relation("RoomHost", fields: [hostId], references: [id])
   messages Message[]
   members  RoomMember[]
   bans     RoomBan[]
+  seats    RoomSeat[]
   playlist BotPlaylistItem[]
 
   @@map("rooms")
+}
+
+enum SeatRole {
+  HOST
+  SPEAKER
+}
+
+/// One mic slot. Mirrors Bazmi's RoomSeat so the two apps behave identically.
+///
+/// Rows are created up-front when the room is created, so a seat always exists
+/// whether or not anyone is on it — an empty seat is a row with a null userId,
+/// never a missing row. That keeps `@@unique([roomId, seatNo])` doing the work
+/// of preventing two people landing on the same seat.
+model RoomSeat {
+  id         Int       @id @default(autoincrement())
+  roomId     Int       @map("room_id")
+  seatNo     Int       @map("seat_no")
+  userId     Int?      @map("user_id")
+  role       SeatRole  @default(SPEAKER)
+  /// Muted while seated. Distinct from not being seated at all.
+  isMuted    Boolean   @default(false) @map("is_muted")
+  /// Host locked the slot — nobody may sit down on it.
+  isLocked   Boolean   @default(false) @map("is_locked")
+  occupiedAt DateTime? @map("occupied_at")
+
+  room Room  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([roomId, seatNo])
+  @@index([roomId, userId])
+  @@map("room_seats")
 }
 
 /// Videos a bot room cycles through, in order.

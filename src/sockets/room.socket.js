@@ -2,6 +2,7 @@ const prisma = require('../config/database');
 const redis = require('../config/redis');
 const logger = require('../utils/logger');
 const botService = require('../services/bot.service');
+const seatService = require('../services/seat.service');
 
 const ROOM_STATE_KEY = (roomId) => `room:${roomId}:state`;
 const ROOM_MEMBERS_KEY = (roomId) => `room:${roomId}:members`;
@@ -43,7 +44,15 @@ const registerRoomEvents = (io, socket) => {
       const videoState = await redis.get(ROOM_STATE_KEY(roomId));
       if (videoState) socket.emit('video:state', JSON.parse(videoState));
 
+      // Rooms created before seats existed have none; backfill on first join.
+      await seatService.ensureSeats(roomId, room.maxSeats);
+
+      // Whoever holds the room takes the host chair if it is free.
+      const currentHostId = room.creatorId === userId ? userId : room.hostId;
+      if (currentHostId === userId) await seatService.seatHost(roomId, userId);
+
       await broadcastMembers(io, roomId);
+      await seatService.broadcastSeats(io, roomId);
       logger.socket('room:join', { roomId, userId });
 
       // Bot rooms welcome real arrivals. Fire-and-forget.
@@ -138,6 +147,143 @@ const registerRoomEvents = (io, socket) => {
     }
   });
 
+  // ── Seats ────────────────────────────────────────────────────────────────
+
+  socket.on('seat:take', async ({ roomId, seatNo }) => {
+    try {
+      roomId = parseInt(roomId);
+      seatNo = parseInt(seatNo);
+      if (Number.isNaN(roomId) || Number.isNaN(seatNo)) return;
+
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room) return;
+
+      // Must actually be in the room — never let a non-member claim a mic.
+      const member = await prisma.roomMember.findUnique({
+        where: { roomId_userId: { roomId, userId } },
+      });
+      if (!member) return;
+
+      const result = await seatService.take(roomId, userId, seatNo, {
+        isHost: room.hostId === userId,
+      });
+
+      if (!result.ok) {
+        socket.emit('seat:denied', { seatNo, message: result.reason });
+        // The client sat down optimistically. Nothing else is being broadcast
+        // on this path, so hand this one socket the real seats to snap back to.
+        return socket.emit('room:seats', {
+          seats: await seatService.listSeats(roomId),
+        });
+      }
+
+      // Sitting down clears a self-mute; the host lock is untouched, so a
+      // host-muted user stays silent even once seated.
+      if (result.changed) {
+        await prisma.roomMember.update({
+          where: { roomId_userId: { roomId, userId } },
+          data: { isMuted: false },
+        });
+        io.to(`room:${roomId}`).emit('mic:state', {
+          userId,
+          isMuted: false,
+          mutedByHost: member.mutedByHost,
+        });
+      }
+
+      await seatService.broadcastSeats(io, roomId);
+      logger.socket('seat:take', { roomId, userId, seatNo });
+    } catch (err) {
+      logger.error('seat:take error', err);
+    }
+  });
+
+  socket.on('seat:leave', async ({ roomId }) => {
+    try {
+      roomId = parseInt(roomId);
+      if (Number.isNaN(roomId)) return;
+
+      const wasSeated = await seatService.vacate(roomId, userId);
+      if (!wasSeated) return;
+
+      // Leaving the mic silences you: an audience member is never live.
+      await prisma.roomMember.updateMany({
+        where: { roomId, userId },
+        data: { isMuted: true },
+      });
+      io.to(`room:${roomId}`).emit('mic:state', {
+        userId,
+        isMuted: true,
+        mutedByHost: false,
+      });
+
+      await seatService.broadcastSeats(io, roomId);
+      logger.socket('seat:leave', { roomId, userId });
+    } catch (err) {
+      logger.error('seat:leave error', err);
+    }
+  });
+
+  // Host mutes/unmutes whoever is on a seat, without unseating them.
+  socket.on('seat:mute', async ({ roomId, seatNo, isMuted }) => {
+    try {
+      roomId = parseInt(roomId);
+      seatNo = parseInt(seatNo);
+
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room || room.hostId !== userId) return;
+
+      const seat = await prisma.roomSeat.findUnique({
+        where: { roomId_seatNo: { roomId, seatNo } },
+      });
+      if (!seat || !seat.userId) return;
+
+      await prisma.roomSeat.update({
+        where: { roomId_seatNo: { roomId, seatNo } },
+        data: { isMuted: Boolean(isMuted) },
+      });
+
+      await seatService.broadcastSeats(io, roomId);
+      logger.socket('seat:mute', { roomId, seatNo, isMuted: Boolean(isMuted) });
+    } catch (err) {
+      logger.error('seat:mute error', err);
+    }
+  });
+
+  // Host sends a speaker back to the audience.
+  socket.on('seat:remove', async ({ roomId, seatNo }) => {
+    try {
+      roomId = parseInt(roomId);
+      seatNo = parseInt(seatNo);
+
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room || room.hostId !== userId) return;
+
+      const seat = await prisma.roomSeat.findUnique({
+        where: { roomId_seatNo: { roomId, seatNo } },
+      });
+      if (!seat || !seat.userId) return;
+
+      const removedUserId = seat.userId;
+      await seatService.vacate(roomId, removedUserId);
+
+      await prisma.roomMember.updateMany({
+        where: { roomId, userId: removedUserId },
+        data: { isMuted: true },
+      });
+      io.to(`room:${roomId}`).emit('mic:state', {
+        userId: removedUserId,
+        isMuted: true,
+        mutedByHost: false,
+      });
+
+      await seatService.broadcastSeats(io, roomId);
+      logger.socket('seat:remove', { roomId, seatNo, removedUserId, by: userId });
+    } catch (err) {
+      logger.error('seat:remove error', err);
+    }
+  });
+
   // Self-mute. Refused while the host has you muted — only the host can lift
   // that, otherwise a client could just unmute itself out of a moderation.
   socket.on('mic:toggle', async ({ roomId, isMuted }) => {
@@ -152,7 +298,29 @@ const registerRoomEvents = (io, socket) => {
       if (member.mutedByHost && !isMuted) {
         return socket.emit('mic:blocked', {
           message: 'The host has muted you',
+          reason: 'host',
         });
+      }
+
+      // Seats are the authority on who may speak. Unmuting from the audience
+      // is refused outright — otherwise the seat system is decoration and a
+      // patched client could talk over a full room.
+      if (!isMuted) {
+        const seat = await prisma.roomSeat.findFirst({
+          where: { roomId, userId },
+        });
+        if (!seat) {
+          return socket.emit('mic:blocked', {
+            message: 'Take a seat to speak',
+            reason: 'seat',
+          });
+        }
+        if (seat.isMuted) {
+          return socket.emit('mic:blocked', {
+            message: 'The host muted your seat',
+            reason: 'seat',
+          });
+        }
       }
 
       await prisma.roomMember.update({
@@ -275,10 +443,14 @@ const registerRoomEvents = (io, socket) => {
         data: { hostId: targetUserId, creatorId: targetUserId },
       });
 
+      // The crown follows the person, not the chair.
+      await seatService.moveHostRole(roomId, targetUserId);
+
       io.to(`room:${roomId}`).emit('room:host_changed', {
         hostId: targetUserId,
       });
       await broadcastMembers(io, roomId);
+      await seatService.broadcastSeats(io, roomId);
       logger.socket('room:transfer_host', { roomId, from: userId, to: targetUserId });
     } catch (err) {
       logger.error('room:transfer_host error', err);
@@ -355,6 +527,8 @@ const registerRoomEvents = (io, socket) => {
 const handleLeave = async (io, roomId, userId) => {
   try {
     await prisma.roomMember.deleteMany({ where: { roomId, userId } });
+    // Free their chair, or the room slowly fills with ghosts nobody can evict.
+    const wasSeated = await seatService.vacate(roomId, userId);
     await redis.srem(ROOM_MEMBERS_KEY(roomId), String(userId));
 
     const remainingMembers = await prisma.roomMember.findMany({
@@ -368,6 +542,7 @@ const handleLeave = async (io, roomId, userId) => {
     // transfer their host away from the owning bot account.
     if (room0?.isBotRoom) {
       await broadcastMembers(io, roomId);
+      if (wasSeated) await seatService.broadcastSeats(io, roomId);
       return;
     }
 
@@ -383,9 +558,14 @@ const handleLeave = async (io, roomId, userId) => {
       if (room && room.hostId === userId) {
         const nextHost = remainingMembers[0].userId;
         await prisma.room.update({ where: { id: roomId }, data: { hostId: nextHost } });
+        // Promoted mid-room: give them the host chair and the crown, otherwise
+        // the new host has room controls but no mic.
+        await seatService.seatHost(roomId, nextHost);
+        await seatService.moveHostRole(roomId, nextHost);
         logger.socket('host:transferred', { roomId, from: userId, to: nextHost });
       }
       await broadcastMembers(io, roomId);
+      await seatService.broadcastSeats(io, roomId);
     }
   } catch (err) {
     logger.error('handleLeave error', err);
@@ -426,6 +606,13 @@ const reconcileStaleRooms = async () => {
     // must survive restarts, so exclude them from both sweeps.
     const { count: staleMembers } = await prisma.roomMember.deleteMany({
       where: { room: { isBotRoom: false } },
+    });
+
+    // Same reasoning for seats: nobody survives a restart still sitting down,
+    // and a seat held by a ghost can never be freed by its occupant.
+    await prisma.roomSeat.updateMany({
+      where: { userId: { not: null }, room: { isBotRoom: false } },
+      data: { userId: null, isMuted: false, occupiedAt: null },
     });
 
     const emptyRooms = await prisma.room.findMany({

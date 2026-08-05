@@ -1,5 +1,6 @@
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
+const seatService = require('../services/seat.service');
 
 const ROOMS_PER_PAGE = 20;
 const MESSAGES_LIMIT = 50;
@@ -57,6 +58,9 @@ const createRoom = async (req, res) => {
       data: { name, youtubeId: youtubeId || null, isPublic: true, hostId: req.user.id, creatorId: req.user.id },
       include: { host: { select: { id: true, name: true, avatar: true } } },
     });
+    // Mic slots exist from the moment the room does, so the first person in
+    // never sees an empty rail. room:join backfills older rooms.
+    await seatService.ensureSeats(room.id, room.maxSeats);
     return res.status(201).json(room);
   } catch (err) {
     logger.error('createRoom failed', err);
