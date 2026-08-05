@@ -3,8 +3,8 @@ const redis = require('../config/redis');
 const logger = require('../utils/logger');
 const botService = require('../services/bot.service');
 const seatService = require('../services/seat.service');
+const { ROOM_STATE_KEY, getLiveVideoState } = require('../utils/video_state');
 
-const ROOM_STATE_KEY = (roomId) => `room:${roomId}:state`;
 const ROOM_MEMBERS_KEY = (roomId) => `room:${roomId}:members`;
 
 const registerRoomEvents = (io, socket) => {
@@ -27,6 +27,12 @@ const registerRoomEvents = (io, socket) => {
 
       socket.join(`room:${roomId}`);
 
+      // Send the video state FIRST, before any DB work. It is the one thing
+      // the user is waiting to see, and making it queue behind three writes
+      // is pure added latency on join.
+      const liveState = await getLiveVideoState(roomId);
+      if (liveState) socket.emit('video:state', liveState);
+
       await prisma.roomMember.upsert({
         where: { roomId_userId: { roomId, userId } },
         update: { joinedAt: new Date() },
@@ -40,9 +46,6 @@ const registerRoomEvents = (io, socket) => {
       }
 
       await redis.sadd(ROOM_MEMBERS_KEY(roomId), String(userId));
-
-      const videoState = await redis.get(ROOM_STATE_KEY(roomId));
-      if (videoState) socket.emit('video:state', JSON.parse(videoState));
 
       // Rooms created before seats existed have none; backfill on first join.
       await seatService.ensureSeats(roomId, room.maxSeats);
@@ -79,7 +82,12 @@ const registerRoomEvents = (io, socket) => {
       const room = await prisma.room.findUnique({ where: { id: roomId } });
       if (!room || room.hostId !== userId) return;
 
-      const state = { youtubeId, timestampSec: 0, isPlaying: false };
+      const state = {
+        youtubeId,
+        timestampSec: 0,
+        isPlaying: false,
+        updatedAt: Date.now(),
+      };
       await redis.set(ROOM_STATE_KEY(roomId), JSON.stringify(state));
       await prisma.room.update({ where: { id: roomId }, data: { youtubeId, timestampSec: 0, isPlaying: false } });
 
@@ -96,7 +104,17 @@ const registerRoomEvents = (io, socket) => {
       const room = await prisma.room.findUnique({ where: { id: roomId } });
       if (!room || room.hostId !== userId) return;
 
-      const state = { youtubeId: room.youtubeId, nextYoutubeId, timestampSec: room.timestampSec, isPlaying: room.isPlaying };
+      // Queueing must not disturb what is playing. Build on the live Redis
+      // state rather than the DB row — the row's timestamp is stale, so using
+      // it would yank every listener back to where the video last loaded.
+      const existing = await getLiveVideoState(roomId);
+      const state = {
+        youtubeId: existing?.youtubeId ?? room.youtubeId,
+        nextYoutubeId,
+        timestampSec: existing?.timestampSec ?? room.timestampSec,
+        isPlaying: existing?.isPlaying ?? room.isPlaying,
+        updatedAt: Date.now(),
+      };
       await redis.set(ROOM_STATE_KEY(roomId), JSON.stringify(state));
       await prisma.room.update({ where: { id: roomId }, data: { nextYoutubeId } });
 

@@ -1,6 +1,7 @@
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
 const seatService = require('../services/seat.service');
+const { getLiveVideoState } = require('../utils/video_state');
 
 const ROOMS_PER_PAGE = 20;
 const MESSAGES_LIMIT = 50;
@@ -89,6 +90,20 @@ const getRoom = async (req, res) => {
     });
     if (ban) {
       return res.status(403).json({ message: 'You were removed from this room' });
+    }
+
+    // Serve the LIVE position, not the DB column. The client builds its player
+    // straight from this response, so returning the stale row is what made a
+    // joiner start behind and then jump forward a few seconds later.
+    const live = await getLiveVideoState(roomId);
+    if (live) {
+      return res.json({
+        ...room,
+        youtubeId: live.youtubeId ?? room.youtubeId,
+        nextYoutubeId: live.nextYoutubeId ?? room.nextYoutubeId,
+        timestampSec: live.timestampSec,
+        isPlaying: Boolean(live.isPlaying),
+      });
     }
 
     return res.json(room);
