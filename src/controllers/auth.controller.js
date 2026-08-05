@@ -43,50 +43,94 @@ const googleAuth = async (req, res) => {
 };
 
 /**
- * Email+password sign-in for ONE hardcoded account, used only by store
- * reviewers. Google Sign-In is our only real auth path, and Google's own
- * reviewers routinely fail its security challenge on an unfamiliar device —
- * which gets the submission rejected for "cannot access app". This gives them
- * credentials that always work.
+ * Every credential pair /auth/review-login accepts.
  *
- * Deliberately narrow: exactly one account from env, no signup, no password
- * reset, no elevated rights. If REVIEW_EMAIL/REVIEW_PASSWORD are unset the
- * route is disabled entirely.
+ * REVIEW_EMAIL/REVIEW_PASSWORD is the store-reviewer account. REVIEW_ACCOUNTS
+ * holds any additional test logins as a comma-separated "email:password" list,
+ * so adding or revoking a tester is an env change, never a code change.
+ *
+ * Read per request rather than cached at boot so an env edit takes effect on
+ * restart without depending on module load order.
+ */
+const parseReviewAccounts = () => {
+  const accounts = [];
+
+  if (process.env.REVIEW_EMAIL && process.env.REVIEW_PASSWORD) {
+    accounts.push({
+      email: process.env.REVIEW_EMAIL,
+      password: process.env.REVIEW_PASSWORD,
+      name: 'Play Reviewer',
+    });
+  }
+
+  for (const entry of String(process.env.REVIEW_ACCOUNTS || '').split(',')) {
+    const trimmed = entry.trim();
+    // Split on the first colon only — a password may legitimately contain one.
+    const sep = trimmed.indexOf(':');
+    if (sep <= 0) continue;
+
+    const email = trimmed.slice(0, sep).trim();
+    const password = trimmed.slice(sep + 1);
+    if (!email || !password) continue;
+
+    accounts.push({ email, password, name: displayNameFor(email) });
+  }
+
+  return accounts;
+};
+
+/** "soban@gmail.com" → "Soban". Only used when the row is first created. */
+const displayNameFor = (email) => {
+  const local = String(email).split('@')[0].replace(/[._-]+/g, ' ').trim();
+  return local ? local.charAt(0).toUpperCase() + local.slice(1) : 'Tester';
+};
+
+/**
+ * Email+password sign-in for a small fixed set of test accounts. Google
+ * Sign-In is our only real auth path, and Google's own reviewers routinely
+ * fail its security challenge on an unfamiliar device — which gets the
+ * submission rejected for "cannot access app". This gives them credentials
+ * that always work.
+ *
+ * Deliberately narrow: accounts come from env only, no signup, no password
+ * reset, no elevated rights. With none configured the route is disabled.
  */
 const reviewLogin = async (req, res) => {
   try {
-    const expectedEmail = process.env.REVIEW_EMAIL;
-    const expectedPassword = process.env.REVIEW_PASSWORD;
-
-    if (!expectedEmail || !expectedPassword) {
+    const accounts = parseReviewAccounts();
+    if (accounts.length === 0) {
       return res.status(404).json({ message: 'Not found' });
     }
 
     const { email, password } = req.body;
+    const givenEmail = String(email || '').toLowerCase();
+    const givenPassword = String(password || '');
 
-    // Constant-time compare so the endpoint can't be used as an oracle.
-    const emailOk = timingSafeEqualStr(
-      String(email || '').toLowerCase(),
-      expectedEmail.toLowerCase(),
-    );
-    const passwordOk = timingSafeEqualStr(
-      String(password || ''),
-      expectedPassword,
-    );
+    // Every account is checked with a constant-time compare, and the loop
+    // deliberately does not break early: bailing on the first hit would leak
+    // which addresses are configured through response timing.
+    let matched = null;
+    for (const account of accounts) {
+      const emailOk = timingSafeEqualStr(givenEmail, account.email.toLowerCase());
+      const passwordOk = timingSafeEqualStr(givenPassword, account.password);
+      if (emailOk && passwordOk) matched = account;
+    }
 
-    if (!emailOk || !passwordOk) {
+    if (!matched) {
       logger.warn('review login rejected', { email });
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    // The reviewer is a normal user row — same permissions as anyone else.
+    // A test login is a normal user row — same permissions as anyone else.
+    // Hashed rather than raw hex so two addresses sharing a long prefix can't
+    // collide on the unique googleId.
     const user = await prisma.user.upsert({
-      where: { email: expectedEmail },
+      where: { email: matched.email },
       update: {},
       create: {
-        googleId: `review_${Buffer.from(expectedEmail).toString('hex').slice(0, 24)}`,
-        name: 'Play Reviewer',
-        email: expectedEmail,
+        googleId: `review_${crypto.createHash('sha256').update(matched.email).digest('hex').slice(0, 24)}`,
+        name: matched.name,
+        email: matched.email,
       },
     });
 
