@@ -250,6 +250,49 @@ const registerRoomEvents = (io, socket) => {
     }
   });
 
+  // Host closes/opens a slot. Locking an occupied seat also clears it —
+  // a locked seat with someone still speaking on it would be a lie.
+  socket.on('seat:lock', async ({ roomId, seatNo, isLocked }) => {
+    try {
+      roomId = parseInt(roomId);
+      seatNo = parseInt(seatNo);
+
+      const room = await prisma.room.findUnique({ where: { id: roomId } });
+      if (!room || room.hostId !== userId) return;
+
+      const seat = await prisma.roomSeat.findUnique({
+        where: { roomId_seatNo: { roomId, seatNo } },
+      });
+      if (!seat) return;
+
+      const locked = Boolean(isLocked);
+
+      if (locked && seat.userId) {
+        const evictedUserId = seat.userId;
+        await seatService.vacate(roomId, evictedUserId);
+        await prisma.roomMember.updateMany({
+          where: { roomId, userId: evictedUserId },
+          data: { isMuted: true },
+        });
+        io.to(`room:${roomId}`).emit('mic:state', {
+          userId: evictedUserId,
+          isMuted: true,
+          mutedByHost: false,
+        });
+      }
+
+      await prisma.roomSeat.update({
+        where: { roomId_seatNo: { roomId, seatNo } },
+        data: { isLocked: locked },
+      });
+
+      await seatService.broadcastSeats(io, roomId);
+      logger.socket('seat:lock', { roomId, seatNo, locked, by: userId });
+    } catch (err) {
+      logger.error('seat:lock error', err);
+    }
+  });
+
   // Host sends a speaker back to the audience.
   socket.on('seat:remove', async ({ roomId, seatNo }) => {
     try {
