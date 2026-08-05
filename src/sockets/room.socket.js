@@ -250,6 +250,39 @@ const registerRoomEvents = (io, socket) => {
     }
   });
 
+  /**
+   * A seated user's emoji reaction, rendered over their chair for a moment.
+   *
+   * Deliberately ephemeral — never written to the messages table. Audience
+   * reactions go through chat:send instead, so the client picks the route and
+   * the server only has to police "is this person actually on a seat".
+   */
+  socket.on('reaction:send', async ({ roomId, emoji }) => {
+    try {
+      roomId = parseInt(roomId);
+      if (Number.isNaN(roomId)) return;
+
+      // Cap the length: this is broadcast verbatim, so an unbounded string
+      // would be a free megaphone into every client in the room.
+      if (typeof emoji !== 'string' || emoji.length === 0 || emoji.length > 16) {
+        return;
+      }
+
+      const seat = await prisma.roomSeat.findFirst({
+        where: { roomId, userId },
+      });
+      if (!seat) return; // audience reactions belong in chat
+
+      io.to(`room:${roomId}`).emit('reaction:receive', {
+        userId,
+        seatNo: seat.seatNo,
+        emoji,
+      });
+    } catch (err) {
+      logger.error('reaction:send error', err);
+    }
+  });
+
   // Host closes/opens a slot. Locking an occupied seat also clears it —
   // a locked seat with someone still speaking on it would be a lie.
   socket.on('seat:lock', async ({ roomId, seatNo, isLocked }) => {
